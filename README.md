@@ -4,12 +4,18 @@ Ranking Nigerian households by willingness to pay for solar devices — so a pay
 
 ## Headline Result
 
-| Targeting strategy | Conversion rate (test set) |
-|---|---|
-| Random outreach | 29.0% |
-| Model's top-20% contact list | **57.9%** |
+Evaluated on a held-out test set by **precision at the top 20%** of model-ranked households — the metric that matches the deployment decision ("which fifth of households should a vendor contact?"). Random-outreach base rate: **29.0%**.
 
-**Lift: 2.0×** — the model doubles the productivity of every unit of outreach budget.
+| Targeting strategy | Top-20% conversion | Lift vs. random |
+|---|---|---|
+| Random outreach | 29.0% | 1.0× |
+| Single decision tree (notebook 02) | 56.9% | 1.96× |
+| Random forest | 61.9% | 2.13× |
+| **Gradient boosting (best)** | **63.5%** | **2.19×** |
+
+**The best model more than doubles the productivity of every unit of outreach budget.** The gain from one tree to the ensemble comes from a systematic feature harvest and boosting.
+
+![MLflow run comparison](mlflow_run_comparison.png)
 
 ## The Problem
 
@@ -27,30 +33,36 @@ A notable design feature: the survey embedded a **randomized willingness-to-pay 
 ## Method
 
 1. **Target definition.** Willingness to pay upfront for a solar device at the randomly offered price (`E_3`; 29% positive). Current solar ownership was rejected as a target: at 1.2% prevalence it is both severely imbalanced and mismatched with the business question (a vendor seeks *future* adopters, not current owners).
-2. **Feature assembly across survey sections**, merged on household ID with unit-of-analysis checks (person-level rosters aggregated or filtered to household heads before merging): offered price, urban/rural residence, household head's education, grid connection, household size, formal bank account, mobile money account.
+2. **Systematic feature harvest.** Every eligible MTF variable is screened against an explicit rule — knowable before outreach, not downstream of the target (a strict leakage test that excludes the Section E price-bargaining follow-ups `E_4`–`E_7`), and mechanistically plausible — then the ensemble ranks them and prunes by evidence. The full decision record is in [`Feature_Harvest_Plan.md`](Feature_Harvest_Plan.md). Final matrix: 32 candidate features over 3,625 households, with row-count assertions after every merge to protect the unit of analysis.
 3. **Culturally grounded recoding.** Education codes include Quranic schooling — the most common category in this Northern sample, and not a rung on the formal-education ladder. It is modeled as a separate indicator alongside an ordered formal-education band (none / primary / secondary / post-secondary).
-4. **Model & tuning.** Decision tree classifier tuned with 5-fold `GridSearchCV` (ROC-AUC scoring): `max_depth=5`, `min_samples_leaf=50`. Depth-sweep analysis documents the underfitting-to-overfitting transition (train/test divergence beyond depth 7).
-5. **Business-aligned evaluation.** Because the deployment decision is "which 20% of households to contact," the primary metric is **precision at the top 20%** of model-ranked households, not accuracy at an arbitrary 0.5 threshold.
+4. **Models & tuning.** Decision tree, random forest, and gradient boosting, each tuned with 5-fold `GridSearchCV` on ROC-AUC. Every run is tracked in **MLflow** (SQLite backend); model selection is by precision-at-top-20%.
+5. **Honest importance.** Drivers are read with **permutation importance** on the held-out set (importances on wide, correlated feature sets can mislead), and features are pruned only when both near-zero and without business rationale.
 
 ## Key Drivers of Willingness to Pay
 
+Permutation importance (drop in test ROC-AUC when shuffled) for the gradient-boosting model:
+
 | Feature | Importance |
 |---|---|
-| Offered price (randomized) | 0.67 |
-| Household head's education | 0.17 |
-| Formal bank account | 0.12 |
-| Grid connection | 0.03 |
+| Offered price (randomized) | 0.106 |
+| State (geography) | 0.040 |
+| Household asset count | 0.036 |
+| Number of rooms | 0.021 |
+| Total consumption (income proxy) | 0.019 |
 
-Price dominates — as the embedded experiment guarantees it should — with household head's education and formal financial inclusion adding real signal. Urban residence contributes no additional splitting power once these are accounted for.
+Price dominates, as the embedded experiment guarantees. The features that lift the ensemble *beyond* the single tree are wealth and location proxies surfaced by the harvest. Notably, an intuitive hypothesis — that **fuel-lighting spend** would signal latent solar demand — was tested and **found near-zero** in this sample: a documented negative result, not a quiet omission.
 
 ## Repository Structure
 
 ```
 notebooks/
-  01_data_ingestion.ipynb     Download, extraction, and first-look validation
-  02_target_and_first_tree.ipynb   Target definition, feature engineering, tuned tree, top-20% evaluation
-raw_data/                     (local only — see ingestion notebook)
-reports/                      Client-style targeting brief (forthcoming)
+  01_data_ingestion.ipynb                Download, extraction, and first-look validation
+  02_target_and_first_tree.ipynb         Target definition, feature engineering, tuned tree, top-20% evaluation
+  03_feature_harvest_and_ensembles.ipynb Systematic harvest, tree vs. forest vs. boosting, MLflow, permutation importance
+Feature_Harvest_Plan.md                  Feature screening decision record (enumerate -> screen -> prune)
+mlflow_run_comparison.png                Model run comparison (portfolio evidence of experiment tracking)
+requirements.txt                         Pinned dependencies
+raw_data/                                (local only — see ingestion notebook)
 ```
 
 ## How to Run
@@ -63,13 +75,18 @@ solar\Scripts\activate        # Windows
 pip install -r requirements.txt
 ```
 
-Then run the notebooks in order. Notebook 01 downloads and extracts the survey data; notebook 02 is fully reproducible top-to-bottom (Restart Kernel → Run All).
+Then run the notebooks in order (Restart Kernel → Run All). Notebook 01 downloads and extracts the survey data; notebooks 02 and 03 are fully reproducible top-to-bottom. Notebook 03 logs to MLflow — inspect the runs with `mlflow ui --backend-store-uri sqlite:///mlflow.db`.
 
 ## Roadmap
 
-- Ensemble comparison: random forest and gradient boosting vs. the tuned tree, judged by precision-at-top-20%
-- Two-page client-style targeting brief
+**Done**
+- Single decision tree with top-20% evaluation (notebook 02)
+- Systematic feature harvest, ensemble comparison (random forest, gradient boosting), and MLflow experiment tracking (notebook 03)
+
+**Next**
+- Deploy the winning model as a batch-scoring service (household CSV in → ranked contact list out), containerised with Docker
 - Fairness diagnostics across gender and urban/rural segments
+- Two-page client-style targeting brief
 
 ## Author
 
