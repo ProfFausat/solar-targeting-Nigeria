@@ -1,8 +1,21 @@
+# Python
 __pycache__/
-.ipynb_checkpoints/
-raw_data/
 *.pyc
+.ipynb_checkpoints/
+
+# Virtual environments
 .venv/
 venv/
 solar/
+
+# Data (not redistributed — see ingestion notebook)
+raw_data/
+
+# MLflow tracking artifacts (generated, not source)
+mlruns/
+mlartifacts/
+mlflow.db
+
+# docs/: working folder with third-party/unshareable source documents.
+# Shareable docs (harvest plan, result figures) live at the repo root.
 docs/
